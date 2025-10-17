@@ -148,7 +148,18 @@ function App() {
     doc.setFontSize(12);
     doc.setTextColor(0, 0, 0);
     result.data.activities.forEach((activity, i) => {
-      const lines = doc.splitTextToSize(`${i + 1}. ${activity}`, pageWidth - 50);
+      // Handle both string and object formats
+      let activityText = '';
+      if (typeof activity === 'string') {
+        activityText = activity;
+      } else if (typeof activity === 'object' && activity !== null) {
+        activityText = `${activity.name || `Activity ${i + 1}`}`;
+        if (activity.instructions) activityText += ` - ${activity.instructions}`;
+        if (activity.materials) activityText += ` Materials: ${activity.materials}`;
+        if (activity.durationFrequency) activityText += ` Duration: ${activity.durationFrequency}`;
+      }
+      
+      const lines = doc.splitTextToSize(`${i + 1}. ${activityText}`, pageWidth - 50);
       lines.forEach(line => {
         if (y > 270) {
           doc.addPage();
@@ -362,9 +373,23 @@ function App() {
             <div className="result-section">
               <h3>✨ Recommended Activities</h3>
               <ul>
-                {result.data.activities.map((activity, i) => (
-                  <li key={i}>{activity}</li>
-                ))}
+                {result.data.activities.map((activity, i) => {
+                  // Handle both string and object formats from Gemini
+                  if (typeof activity === 'string') {
+                    return <li key={i}>{activity}</li>;
+                  } else if (typeof activity === 'object' && activity !== null) {
+                    return (
+                      <li key={i}>
+                        <strong>{activity.name || `Activity ${i + 1}`}</strong>
+                        {activity.instructions && <div className="activity-detail"><em>Instructions:</em> {activity.instructions}</div>}
+                        {activity.materials && <div className="activity-detail"><em>Materials:</em> {activity.materials}</div>}
+                        {activity.durationFrequency && <div className="activity-detail"><em>Duration:</em> {activity.durationFrequency}</div>}
+                        {activity.successLooksLike && <div className="activity-detail"><em>Success:</em> {activity.successLooksLike}</div>}
+                      </li>
+                    );
+                  }
+                  return null;
+                })}
               </ul>
             </div>
 

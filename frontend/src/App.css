@@ -438,6 +438,20 @@
   border: 2px solid #f59e0b;
 }
 
+.activity-detail {
+  margin-top: 8px;
+  padding-left: 16px;
+  font-size: 14px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.activity-detail em {
+  font-weight: 600;
+  color: #0066cc;
+  font-style: normal;
+}
+
 .history {
   padding: 20px 30px;
   border-top: 2px solid #e0e0e0;

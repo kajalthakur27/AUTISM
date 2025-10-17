@@ -8,14 +8,21 @@
     "build": "tsc",
     "start": "node dist/index.js"
   },
-  "keywords": ["autism", "ai", "gemini", "healthcare", "therapy"],
+  "keywords": [
+    "autism",
+    "ai",
+    "gemini",
+    "healthcare",
+    "therapy"
+  ],
   "author": "Arvit HealthTech",
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1"
+    "express": "^4.21.1",
+    "mongoose": "^8.19.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

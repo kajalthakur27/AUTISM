@@ -2,6 +2,7 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import analysisRoutes from './routes/analysisRoutes';
+import { connectDatabase } from './config/database';
 
 dotenv.config();
 
@@ -71,15 +72,24 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log('🚀 ========================================');
-  console.log(`🚀 Server: http://localhost:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔑 Gemini API: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '⚠️  Not configured'}`);
-  console.log('🚀 ========================================');
-  console.log('📍 Endpoints:');
-  console.log('   GET  /health - Health check');
-  console.log('   POST /api/analyze - Analyze child');
-  console.log('🚀 ========================================');
-});
+// Start server and connect to database
+const startServer = async () => {
+  // Connect to MongoDB
+  await connectDatabase();
+
+  app.listen(PORT, () => {
+    console.log('🚀 ========================================');
+    console.log(`🚀 Server: http://localhost:${PORT}`);
+    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔑 Gemini API: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '⚠️  Not configured'}`);
+    console.log('🚀 ========================================');
+    console.log('📍 Endpoints:');
+    console.log('   GET  /health - Health check');
+    console.log('   POST /api/analyze - Analyze child');
+    console.log('   GET  /api/screenings - Get all screenings');
+    console.log('   GET  /api/screenings/:id - Get screening by ID');
+    console.log('🚀 ========================================');
+  });
+};
+
+startServer();
