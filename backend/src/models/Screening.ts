@@ -4,10 +4,10 @@ import { TherapyResponse } from '../types';
 export interface IScreening extends Document {
   childName: string;
   age: number;
-  eyeContact: number;
-  speechLevel: number;
-  socialResponse: number;
-  sensoryReactions: number;
+  eyeContact: string;
+  speechLevel: string;
+  socialResponse: string;
+  sensoryReactions: string;
   results: TherapyResponse;
   source: 'gemini-ai' | 'fallback';
   createdAt: Date;
@@ -28,28 +28,20 @@ const ScreeningSchema: Schema = new Schema(
       max: 18,
     },
     eyeContact: {
-      type: Number,
+      type: String,
       required: true,
-      min: 1,
-      max: 5,
     },
     speechLevel: {
-      type: Number,
+      type: String,
       required: true,
-      min: 1,
-      max: 5,
     },
     socialResponse: {
-      type: Number,
+      type: String,
       required: true,
-      min: 1,
-      max: 5,
     },
     sensoryReactions: {
-      type: Number,
+      type: String,
       required: true,
-      min: 1,
-      max: 5,
     },
     results: {
       assessment: String,

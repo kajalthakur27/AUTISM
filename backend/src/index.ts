@@ -57,6 +57,7 @@ app.get('/health', (req: Request, res: Response) => {
     status: 'ok', 
     message: 'Autism Screening Backend Running',
     geminiConfigured: !!process.env.GEMINI_API_KEY,
+    database: 'in-memory',
     timestamp: new Date().toISOString()
   });
 });

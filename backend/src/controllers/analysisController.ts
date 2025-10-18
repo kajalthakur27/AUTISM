@@ -1,9 +1,27 @@
 import { Request, Response } from 'express';
 import { GeminiService } from '../services/geminiService';
-import { ChildData } from '../types';
+import { StorageService } from '../services/storageService';
 import { Screening } from '../models/Screening';
+import { ChildData } from '../types';
+
+// In-memory storage (replaces MongoDB)
+interface StoredScreening {
+  id: string;
+  childName: string;
+  age: number;
+  eyeContact: string;
+  speechLevel: string;
+  socialResponse: string;
+  sensoryReactions: string;
+  results: any;
+  source: string;
+  createdAt: Date;
+}
+
+const screenings: StoredScreening[] = [];
 
 const geminiService = new GeminiService();
+const storageService = new StorageService();
 
 export const analyzeChild = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -31,8 +49,10 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
 
     const recommendations = await geminiService.analyzeChild(childData);
 
-    // Save to MongoDB
+    // Save to MongoDB first, then external storage, fallback to memory
+    let savedScreening = null;
     try {
+      // Try MongoDB first
       const screening = new Screening({
         childName: childData.childName,
         age: childData.age,
@@ -41,14 +61,41 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
         socialResponse: childData.socialResponse,
         sensoryReactions: childData.sensoryReactions,
         results: recommendations,
-        source: 'gemini-ai',
+        source: 'gemini-ai'
       });
 
-      await screening.save();
-      console.log(`💾 Screening saved to database with ID: ${screening._id}`);
-    } catch (dbError) {
-      console.error('⚠️  Failed to save to database:', dbError);
-      // Continue anyway - don't fail the request if DB save fails
+      savedScreening = await screening.save();
+      console.log(`💾 Screening saved to MongoDB with ID: ${savedScreening._id}`);
+    } catch (mongoError) {
+      console.error('⚠️  MongoDB save failed:', mongoError);
+      
+      // Try external storage as fallback
+      try {
+        const externalData = await storageService.saveScreeningData(childData, recommendations);
+        if (externalData) {
+          console.log(`🌐 Screening saved to external storage with ID: ${externalData.id}`);
+        } else {
+          // Final fallback to in-memory storage
+          const memoryScreening: StoredScreening = {
+            id: Date.now().toString(),
+            childName: childData.childName,
+            age: childData.age,
+            eyeContact: childData.eyeContact.toString(),
+            speechLevel: childData.speechLevel.toString(),
+            socialResponse: childData.socialResponse.toString(),
+            sensoryReactions: childData.sensoryReactions.toString(),
+            results: recommendations,
+            source: 'gemini-ai',
+            createdAt: new Date(),
+          };
+
+          screenings.push(memoryScreening);
+          console.log(`💾 Screening saved to memory with ID: ${memoryScreening.id}`);
+        }
+      } catch (error) {
+        console.error('⚠️  All storage methods failed:', error);
+        // Continue anyway - analysis was successful
+      }
     }
 
     res.status(200).json({
@@ -75,20 +122,63 @@ export const getScreenings = async (req: Request, res: Response): Promise<void> 
     const limit = parseInt(req.query.limit as string) || 50;
     const childName = req.query.childName as string;
 
-    let query = {};
-    if (childName) {
-      query = { childName: new RegExp(childName, 'i') }; // Case-insensitive search
+    // Try MongoDB first
+    try {
+      const query = childName 
+        ? { childName: { $regex: childName, $options: 'i' } }
+        : {};
+
+      const mongoScreenings = await Screening.find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .exec();
+
+      if (mongoScreenings.length > 0) {
+        console.log(`💾 Retrieved ${mongoScreenings.length} screenings from MongoDB`);
+        res.status(200).json({
+          success: true,
+          count: mongoScreenings.length,
+          data: mongoScreenings,
+          source: 'mongodb'
+        });
+        return;
+      }
+    } catch (mongoError) {
+      console.error('⚠️  MongoDB query failed:', mongoError);
     }
 
-    const screenings = await Screening.find(query)
-      .sort({ createdAt: -1 }) // Most recent first
-      .limit(limit)
-      .select('-__v'); // Exclude version key
+    // Try external storage as fallback
+    let externalScreenings: any[] = [];
+    if (storageService.isStorageConfigured()) {
+      try {
+        externalScreenings = await storageService.getScreenings(limit, childName);
+        console.log(`🌐 Retrieved ${externalScreenings.length} screenings from external storage`);
+      } catch (error) {
+        console.error('⚠️  Failed to fetch from external storage:', error);
+      }
+    }
+
+    // Final fallback to in-memory storage
+    let memoryScreenings = screenings;
+    if (childName) {
+      memoryScreenings = screenings.filter(screening => 
+        screening.childName.toLowerCase().includes(childName.toLowerCase())
+      );
+    }
+
+    const sortedMemoryScreenings = memoryScreenings
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+
+    // Return best available data
+    const finalResults = externalScreenings.length > 0 ? externalScreenings : sortedMemoryScreenings;
+    const source = externalScreenings.length > 0 ? 'external-storage' : 'memory';
 
     res.status(200).json({
       success: true,
-      count: screenings.length,
-      data: screenings
+      count: finalResults.length,
+      data: finalResults,
+      source
     });
   } catch (error) {
     console.error('❌ Error fetching screenings:', error);
@@ -103,19 +193,53 @@ export const getScreeningById = async (req: Request, res: Response): Promise<voi
   try {
     const { id } = req.params;
 
-    const screening = await Screening.findById(id).select('-__v');
+    // Try MongoDB first
+    try {
+      const mongoScreening = await Screening.findById(id).exec();
+      if (mongoScreening) {
+        res.status(200).json({
+          success: true,
+          data: mongoScreening,
+          source: 'mongodb'
+        });
+        return;
+      }
+    } catch (mongoError) {
+      console.error('⚠️  MongoDB query failed:', mongoError);
+    }
 
-    if (!screening) {
-      res.status(404).json({
-        success: false,
-        error: 'Screening not found'
+    // Try external storage as fallback
+    if (storageService.isStorageConfigured()) {
+      try {
+        const externalScreening = await storageService.getScreeningById(id);
+        if (externalScreening) {
+          res.status(200).json({
+            success: true,
+            data: externalScreening,
+            source: 'external-storage'
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('⚠️  Failed to fetch from external storage:', error);
+      }
+    }
+
+    // Final fallback to in-memory storage
+    const screening = screenings.find(s => s.id === id);
+    if (screening) {
+      res.status(200).json({
+        success: true,
+        data: screening,
+        source: 'memory'
       });
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: screening
+    // Not found in any storage
+    res.status(404).json({
+      success: false,
+      error: 'Screening not found'
     });
   } catch (error) {
     console.error('❌ Error fetching screening:', error);
