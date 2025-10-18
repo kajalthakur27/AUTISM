@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 // Robust CORS: allow specific origins from env and any localhost/127.0.0.1 in development
-const explicitOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'];
+const explicitOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:5174'];
 const allowLocalWildcard = (process.env.NODE_ENV || 'development') !== 'production';
 
 const corsOptions: cors.CorsOptions = {
@@ -78,7 +78,7 @@ const startServer = async () => {
   // Connect to MongoDB
   await connectDatabase();
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log('🚀 ========================================');
     console.log(`🚀 Server: http://localhost:${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -90,6 +90,21 @@ const startServer = async () => {
     console.log('   GET  /api/screenings - Get all screenings');
     console.log('   GET  /api/screenings/:id - Get screening by ID');
     console.log('🚀 ========================================');
+  });
+
+  // Better error handling for common server startup issues
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ Port ${PORT} is already in use.\n` +
+        'Possible fixes:\n' +
+        `  - Stop the process currently using port ${PORT} (for example: ` +
+        "`lsof -i :${PORT}` then `kill <PID>` on Linux).\n" +
+        `  - Or set a different port before starting the server: PORT=5001 npm run dev\n`
+      );
+      process.exit(1);
+    }
+    // Re-throw unknown errors
+    throw err;
   });
 };
 
