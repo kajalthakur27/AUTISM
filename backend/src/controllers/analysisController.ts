@@ -26,28 +26,54 @@ const storageService = new StorageService();
 export const analyzeChild = async (req: Request, res: Response): Promise<void> => {
   try {
     const childData: ChildData = req.body;
+    const emotionAnalysis = req.body.emotionAnalysis;
+    const capturedImage = req.body.capturedImage; // Add image handling
 
-    // Validation
-    if (!childData.childName || !childData.age) {
+    console.log('📨 Received request body keys:', Object.keys(req.body));
+    console.log('📏 Request body size:', JSON.stringify(req.body).length, 'bytes');
+
+    // Validation - make fields optional for emotion-only analysis
+    if (!childData.childName) {
       res.status(400).json({
         success: false,
-        error: 'Child name and age are required'
+        error: 'Child name is required'
       });
       return;
     }
 
-    if (!childData.eyeContact || !childData.speechLevel || 
-        !childData.socialResponse || !childData.sensoryReactions) {
+    // Allow partial submissions for emotion detection only
+    if (!emotionAnalysis && (!childData.age || !childData.eyeContact || !childData.speechLevel || 
+        !childData.socialResponse || !childData.sensoryReactions)) {
       res.status(400).json({
         success: false,
-        error: 'All assessment fields are required'
+        error: 'All assessment fields are required for full analysis'
       });
       return;
     }
 
-    console.log(`📊 Analyzing: ${childData.childName}, Age: ${childData.age}`);
+    console.log(`📊 Analyzing: ${childData.childName}, Age: ${childData.age || 'Not provided'}`);
+    if (emotionAnalysis) {
+      console.log(`🎭 Emotion detected: ${emotionAnalysis.emotion} (confidence: ${emotionAnalysis.confidence})`);
+    }
+    if (capturedImage) {
+      console.log(`📷 Image data received: ${capturedImage.substring(0, 50)}...`);
+    }
 
-    const recommendations = await geminiService.analyzeChild(childData);
+    // Only run Gemini analysis if we have complete form data
+    let recommendations = null;
+    if (childData.age && childData.eyeContact && childData.speechLevel && 
+        childData.socialResponse && childData.sensoryReactions) {
+      recommendations = await geminiService.analyzeChild(childData);
+    } else {
+      recommendations = {
+        assessment: 'Emotion detection completed. Please fill out the complete assessment form for detailed analysis.',
+        riskLevel: 'Pending',
+        focusAreas: ['Complete Assessment'],
+        therapyGoals: ['Complete the full assessment form for comprehensive analysis'],
+        activities: ['Fill out all assessment fields'],
+        suggestions: ['Provide complete information for accurate analysis']
+      };
+    }
 
     // Save to MongoDB first, then external storage, fallback to memory
     let savedScreening = null;
@@ -103,6 +129,7 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
       childName: childData.childName,
       age: childData.age,
       data: recommendations,
+      emotionAnalysis: emotionAnalysis || null,
       source: 'gemini-ai'
     });
     

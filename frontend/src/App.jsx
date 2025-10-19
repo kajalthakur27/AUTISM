@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import jsPDF from 'jspdf';
+import EmotionDetection from './components/EmotionDetection';
 import './App.css';
 
 function App() {
@@ -16,6 +17,9 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [savedData, setSavedData] = useState([]);
+  const [emotionData, setEmotionData] = useState([]);
+  const [showEmotionDetection, setShowEmotionDetection] = useState(false);
+  const [capturedImage, setCapturedImage] = useState(null);
 
   // Load saved data from localStorage on mount
   React.useEffect(() => {
@@ -34,6 +38,135 @@ function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleEmotionDetected = async (emotion) => {
+    setEmotionData(prev => [...prev, emotion]);
+    
+    // If this emotion detection includes a captured image, store it and process immediately
+    if (emotion.capturedImage) {
+      setCapturedImage(emotion.capturedImage);
+      setShowEmotionDetection(false);
+      
+      // If we have minimal form data (at least child name), send for analysis
+      if (formData.childName.trim()) {
+        try {
+          setLoading(true);
+          setError('');
+          
+          const requestData = {
+            childName: formData.childName,
+            age: formData.age ? Number(formData.age) : undefined,
+            eyeContact: formData.eyeContact || undefined,
+            speechLevel: formData.speechLevel || undefined,
+            socialResponse: formData.socialResponse || undefined,
+            sensoryReactions: formData.sensoryReactions || undefined,
+            emotionAnalysis: emotion,
+            capturedImage: emotion.capturedImage
+          };
+
+          console.log('Sending emotion data to backend:', {
+            childName: requestData.childName,
+            hasImage: !!requestData.capturedImage,
+            emotion: emotion.emotion,
+            confidence: emotion.confidence
+          });
+
+          const response = await fetch('http://localhost:5001/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            setResult(data);
+            
+            // Save to localStorage
+            const newEntry = {
+              ...data,
+              timestamp: new Date().toISOString()
+            };
+            const updated = [newEntry, ...savedData].slice(0, 10);
+            setSavedData(updated);
+            localStorage.setItem('autism_screenings', JSON.stringify(updated));
+          } else {
+            setError(data.error || 'Analysis failed');
+          }
+        } catch (err) {
+          console.error('Error analyzing emotion:', err);
+          setError('Failed to analyze emotion. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+  };
+
+  const getEmotionSummary = () => {
+    if (emotionData.length === 0) return null;
+    
+    const emotionCounts = {};
+    emotionData.forEach(item => {
+      emotionCounts[item.emotion] = (emotionCounts[item.emotion] || 0) + 1;
+    });
+
+    const dominantEmotion = Object.keys(emotionCounts).reduce((a, b) => 
+      emotionCounts[a] > emotionCounts[b] ? a : b
+    );
+
+    return {
+      dominantEmotion,
+      emotionCounts,
+      totalDetections: emotionData.length,
+      emotionHistory: emotionData
+    };
+  };
+
+  const getEmotionEmoji = (emotion) => {
+    // Add safety check for undefined/null emotion
+    if (!emotion || typeof emotion !== 'string') {
+      return '😐'; // Default neutral emoji
+    }
+    
+    const emojiMap = {
+      'happy': '😊',
+      'sad': '😢', 
+      'angry': '😠',
+      'surprised': '😲',
+      'fearful': '😰',
+      'disgusted': '🤢',
+      'neutral': '😐',
+      'joy': '😄',
+      'fear': '😨',
+      'disgust': '🤮',
+      'anger': '😡',
+      'sadness': '😭',
+      'surprise': '😯'
+    };
+    return emojiMap[emotion.toLowerCase()] || '😐';
+  };
+
+  const captureEmotionImage = () => {
+    // Try to capture image from emotion detection component
+    if (window.captureEmotionImage) {
+      const image = window.captureEmotionImage();
+      if (image) {
+        setCapturedImage(image);
+        return image;
+      }
+    }
+    
+    // Fallback: try to get from summary
+    if (window.getEmotionSummary) {
+      const summary = window.getEmotionSummary();
+      if (summary && summary.capturedImage) {
+        setCapturedImage(summary.capturedImage);
+        return summary.capturedImage;
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -48,13 +181,22 @@ function App() {
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/analyze', {
+      // Capture image when analyzing
+      const capturedImg = captureEmotionImage();
+      
+      // Get emotion summary if available
+      const emotionSummary = getEmotionSummary();
+      
+      const requestData = {
+        ...formData,
+        age: Number(formData.age),
+        ...(emotionSummary && { emotionAnalysis: emotionSummary })
+      };
+
+      const response = await fetch('http://localhost:5001/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          age: Number(formData.age)
-        })
+        body: JSON.stringify(requestData)
       });
 
       const data = await response.json();
@@ -75,7 +217,7 @@ function App() {
       }
     } catch (err) {
       console.error('Error:', err);
-      setError('Failed to connect to server. Make sure backend is running on port 5000.');
+      setError('Failed to connect to server. Make sure backend is running on port 5002.');
     } finally {
       setLoading(false);
     }
@@ -200,6 +342,9 @@ function App() {
     });
     setResult(null);
     setError('');
+    setEmotionData([]);
+    setShowEmotionDetection(false);
+    setCapturedImage(null);
   };
 
   return (
@@ -325,6 +470,43 @@ function App() {
             </select>
           </div>
 
+          {/* Emotion Detection Section */}
+          <div className="form-group emotion-section">
+            <div className="emotion-header">
+              <label>🎭 Real-time Emotion Detection (Optional)</label>
+              <button
+                type="button"
+                className="btn-emotion-toggle"
+                onClick={() => setShowEmotionDetection(!showEmotionDetection)}
+              >
+                {showEmotionDetection ? '👁️ Hide Camera' : '📹 Start Face Analysis'}
+              </button>
+            </div>
+            
+            {showEmotionDetection && (
+              <div className="emotion-detection-wrapper">
+                <p className="emotion-info">
+                  📊 This feature captures real-time facial expressions to provide additional behavioral insights.
+                  Allow camera access and look at the camera while answering questions.
+                </p>
+                <EmotionDetection 
+                  onEmotionDetected={handleEmotionDetected}
+                  isActive={showEmotionDetection}
+                />
+                
+                {emotionData.length > 0 && (
+                  <div className="emotion-summary">
+                    <h4>📈 Emotion Analysis Summary:</h4>
+                    <p>Total detections: {emotionData.length}</p>
+                    {getEmotionSummary() && (
+                      <p>Dominant emotion: <strong>{getEmotionSummary().dominantEmotion}</strong></p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {error && <div className="error">{error}</div>}
 
           <div className="button-group">
@@ -351,6 +533,121 @@ function App() {
               <strong>Child:</strong> {result.childName} | <strong>Age:</strong> {result.age} years
               <span className="ai-badge">Powered by Gemini AI</span>
             </div>
+
+            {/* Emotion Analysis Results */}
+            {result.emotionAnalysis && (
+              <div className="result-section emotion-results">
+                <h3>🎭 {result.childName}'s Facial Expression Analysis</h3>
+                <div className="emotion-analysis-grid">
+                  {capturedImage && (
+                    <div className="captured-image">
+                      <h4>📸 Captured Image</h4>
+                      <img src={capturedImage} alt="Captured during analysis" style={{
+                        maxWidth: '200px',
+                        maxHeight: '150px',
+                        borderRadius: '8px',
+                        border: '2px solid #ddd'
+                      }} />
+                    </div>
+                  )}
+                  
+                  <div className="emotion-details">
+                    <div className="dominant-emotion">
+                      <h4>{result.childName}'s Primary Emotion:</h4>
+                      <div className="emotion-display">
+                        <span className="emotion-emoji">{getEmotionEmoji(result.emotionAnalysis.dominantEmotion)}</span>
+                        <span className="emotion-name">{(result.emotionAnalysis.dominantEmotion || 'UNKNOWN').toUpperCase()}</span>
+                      </div>
+                      <p className="emotion-count">
+                        Detected {result.emotionAnalysis.totalDetections} times during {result.childName}'s assessment
+                      </p>
+                      
+                      {/* Show confidence percentage prominently */}
+                      <div style={{ 
+                        marginTop: '10px', 
+                        padding: '10px', 
+                        backgroundColor: '#e3f2fd', 
+                        borderRadius: '8px',
+                        border: '2px solid #2196f3'
+                      }}>
+                        <strong style={{ color: '#1976d2', fontSize: '16px' }}>
+                          🎯 Confidence: {(() => {
+                            // Try multiple sources for confidence
+                            const confidence = result.emotionAnalysis?.confidence || 
+                                             (result.emotionAnalysis?.emotionHistory?.[0]?.confidence) ||
+                                             0;
+                            return confidence > 0 ? (confidence * 100).toFixed(1) + '%' : 'Processing...';
+                          })()}
+                        </strong>
+                      </div>
+                      
+                      {/* Face Detection Confidence */}
+                      {result.emotionAnalysis && (
+                        <div className="confidence-display" style={{ marginTop: '10px' }}>
+                          <h5 style={{ margin: '5px 0', color: '#1976d2' }}>🎯 Detection Quality:</h5>
+                          <div style={{ display: 'flex', gap: '15px', fontSize: '14px' }}>
+                            <span>
+                              👤 <strong>Face Detection:</strong> 
+                              <span style={{ 
+                                marginLeft: '5px',
+                                padding: '2px 6px',
+                                backgroundColor: '#2196F3',
+                                color: 'white',
+                                borderRadius: '3px',
+                                fontSize: '12px'
+                              }}>
+                                {(() => {
+                                  const faceScore = result.emotionAnalysis?.faceDetectionScore || 
+                                                  (result.emotionAnalysis?.emotionHistory?.[0]?.faceDetectionScore) ||
+                                                  0;
+                                  return faceScore > 0 ? (faceScore * 100).toFixed(1) + '%' : 'N/A';
+                                })()}
+                              </span>
+                            </span>
+                            
+                            <span>
+                              🎭 <strong>Emotion Accuracy:</strong> 
+                              <span style={{ 
+                                marginLeft: '5px',
+                                padding: '2px 6px',
+                                backgroundColor: '#4CAF50',
+                                color: 'white',
+                                borderRadius: '3px',
+                                fontSize: '12px'
+                              }}>
+                                {(() => {
+                                  const confidence = result.emotionAnalysis?.confidence || 
+                                                   (result.emotionAnalysis?.emotionHistory?.[0]?.confidence) ||
+                                                   0;
+                                  return confidence > 0 ? (confidence * 100).toFixed(1) + '%' : 'N/A';
+                                })()}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="emotion-breakdown">
+                      <h4>All Emotions Detected:</h4>
+                      <div className="emotion-list">
+                        {Object.entries(result.emotionAnalysis.emotionCounts || {}).map(([emotion, count]) => (
+                          <div key={emotion} className="emotion-item">
+                            <span className="emotion-emoji">{getEmotionEmoji(emotion)}</span>
+                            <span className="emotion-text">{emotion}</span>
+                            <span className="emotion-count">({count}x)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="emotion-note">
+                  <p><strong>Note:</strong> Facial expression analysis provides additional behavioral insights and should be considered alongside other assessment factors.</p>
+                </div>
+              </div>
+            )}
 
             <div className="result-section">
               <h3>🎯 Focus Areas</h3>
