@@ -2,6 +2,35 @@ import { model, isConfigured } from '../config/gemini';
 import { ChildData, TherapyResponse } from '../types';
 
 export class GeminiService {
+  async analyzeChildFromPhoto(data: ChildData, emotionData: any): Promise<TherapyResponse> {
+    if (!model || !isConfigured) {
+      throw new Error('Gemini model is not configured');
+    }
+
+    const prompt = this.constructPhotoOnlyPrompt(data, emotionData);
+    
+    try {
+      console.log('🤖 Sending photo-only analysis to Gemini AI...');
+      console.log(`📝 Patient: ${data.childName}, Age: ${data.age}`);
+      console.log(`🎭 Primary Emotion: ${emotionData.emotion}, Confidence: ${(emotionData.confidence * 100).toFixed(1)}%`);
+      
+      const chatSession = model.startChat({
+        history: [],
+      });
+
+      const result = await chatSession.sendMessage(prompt);
+      const responseText = result.response.text();
+      
+      console.log('✅ Gemini AI photo analysis response received successfully');
+      console.log('📄 Response length:', responseText.length, 'characters');
+      
+      return this.parseResponse(responseText, data);
+    } catch (error) {
+      console.error('❌ Gemini Photo Analysis Error:', error);
+      throw new Error('Gemini photo analysis failed');
+    }
+  }
+
   async analyzeChild(data: ChildData): Promise<TherapyResponse> {
     if (!model || !isConfigured) {
       throw new Error('Gemini model is not configured');
@@ -29,6 +58,73 @@ export class GeminiService {
       console.error('❌ Gemini API Error:', error);
       throw new Error('Gemini analysis failed');
     }
+  }
+
+  private constructPhotoOnlyPrompt(data: ChildData, emotionData: any): string {
+    return `You are Dr. Sarah Mitchell, a board-certified developmental pediatrician and autism specialist with 20 years of clinical experience. You work at a children's hospital and specialize in early childhood development and autism spectrum disorder assessment.
+
+PATIENT PHOTO ANALYSIS DATA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Patient Name: ${data.childName}
+Age: ${data.age} years old
+
+FACIAL EXPRESSION ANALYSIS RESULTS:
+• Primary Emotion Detected: ${emotionData.emotion}
+• Confidence Level: ${(emotionData.confidence * 100).toFixed(1)}%
+• Face Detection Quality: ${(emotionData.faceDetectionScore * 100).toFixed(1)}%
+
+ALL DETECTED EMOTIONS WITH CONFIDENCE LEVELS:
+${Object.entries(emotionData.allExpressions).map(([emotion, confidence]: [string, any]) => 
+  `• ${emotion}: ${(confidence * 100).toFixed(1)}%`
+).join('\n')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLINICAL TASK - PHOTO-ONLY ANALYSIS:
+This is a LIMITED photo-only facial expression analysis for ${data.childName}. Provide recommendations based solely on the facial expression data, while clearly noting the limitations of this approach.
+
+YOU MUST RESPOND WITH VALID JSON IN THIS EXACT FORMAT:
+{
+  "assessment": "Write 2-3 professional sentences analyzing the facial expression results and their potential significance, while noting this is a limited photo-only assessment",
+  "riskLevel": "Moderate",
+  "focusAreas": [
+    "Facial Expression Analysis",
+    "Emotional Regulation Patterns",
+    "Comprehensive Behavioral Assessment Needed"
+  ],
+  "therapyGoals": [
+    "Complete comprehensive autism screening assessment",
+    "Observe emotional expression patterns in various settings",
+    "Evaluate social communication and behavioral patterns"
+  ],
+  "activities": [
+    "Schedule full developmental assessment with licensed professional",
+    "Observe child's emotional responses in different social contexts and document patterns"
+  ],
+  "suggestions": [
+    "This photo-only analysis provides limited clinical information",
+    "Complete behavioral assessment form recommended for accurate evaluation",
+    "Consult developmental pediatrician or autism specialist for comprehensive screening"
+  ]
+}
+
+CRITICAL GUIDELINES FOR PHOTO-ONLY ANALYSIS:
+1. **assessment**: Acknowledge this is based on facial expression only, mention detected emotion and confidence level
+2. **riskLevel**: Always "Moderate" for photo-only analysis due to limited data
+3. **focusAreas**: Always include need for comprehensive assessment
+4. **therapyGoals**: Focus on getting complete evaluation rather than specific interventions
+5. **activities**: Emphasize professional assessment rather than specific activities
+6. **suggestions**: Always mention limitations and need for complete evaluation
+
+IMPORTANT DISCLAIMERS TO INCLUDE:
+- Photo-only analysis has significant limitations
+- Facial expressions alone cannot diagnose autism
+- Complete behavioral assessment is essential
+- Professional evaluation is strongly recommended
+
+Use warm, professional language while being clear about limitations.
+
+RESPONSE FORMAT: Pure JSON only. No markdown, no code blocks, no extra text. Start with { and end with }.`;
   }
 
   private constructPrompt(data: ChildData): string {

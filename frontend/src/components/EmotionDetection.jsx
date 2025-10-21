@@ -132,9 +132,9 @@ const EmotionDetection = ({ onEmotionDetected, isActive = true }) => {
     context.clearRect(0, 0, canvas.width, canvas.height);
 
     if (detections.length > 0) {
-      // Draw face detection box and emotions
-      faceapi.draw.drawDetections(canvas, detections);
-      faceapi.draw.drawFaceExpressions(canvas, detections);
+      // Remove face detection box drawings for cleaner look
+      // faceapi.draw.drawDetections(canvas, detections);
+      // faceapi.draw.drawFaceExpressions(canvas, detections);
 
       // Get the most confident emotion with better accuracy
       const expressions = detections[0].expressions;
@@ -298,10 +298,14 @@ const EmotionDetection = ({ onEmotionDetected, isActive = true }) => {
               timestamp: new Date().toISOString(),
               allExpressions: expressions,
               faceDetectionScore: detections[0].detection.score,
-              capturedImage: imageSrc
+              capturedImage: imageSrc,
+              isUploadedImage: true
             };
 
             setCurrentEmotion(emotionData);
+            
+            // Add to emotion history for uploaded image
+            setEmotionHistory(prev => [...prev, emotionData]);
             
             // Send emotion data to parent
             if (onEmotionDetected) {
@@ -456,6 +460,116 @@ const EmotionDetection = ({ onEmotionDetected, isActive = true }) => {
                   }} 
                 />
                 <p style={{ color: '#2196F3', fontWeight: 'bold' }}>✅ Picture uploaded successfully!</p>
+                
+                {/* Show detailed emotion analysis for uploaded image */}
+                {currentEmotion && currentEmotion.isUploadedImage && (
+                  <div style={{
+                    marginTop: '15px',
+                    padding: '15px',
+                    backgroundColor: '#f0f8ff',
+                    borderRadius: '8px',
+                    border: '2px solid #2196F3'
+                  }}>
+                    <h4 style={{ margin: '0 0 15px 0', color: '#1976d2', textAlign: 'center' }}>
+                      🎭 Photo Emotion Analysis Results
+                    </h4>
+                    
+                    {/* Primary Emotion Display */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: '20px',
+                      padding: '15px',
+                      backgroundColor: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #e3f2fd'
+                    }}>
+                      <span style={{ fontSize: '48px', marginRight: '20px' }}>
+                        {getEmotionEmoji ? getEmotionEmoji(currentEmotion.emotion) : '😐'}
+                      </span>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1976d2', marginBottom: '5px' }}>
+                          {currentEmotion.emotion.toUpperCase()}
+                        </div>
+                        <div style={{ 
+                          fontSize: '18px', 
+                          color: currentEmotion.confidence > 0.7 ? '#4caf50' : currentEmotion.confidence > 0.5 ? '#ff9800' : '#f44336',
+                          fontWeight: 'bold'
+                        }}>
+                          {(currentEmotion.confidence * 100).toFixed(1)}% Confidence
+                        </div>
+                        <div style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>
+                          Face Quality: <span style={{ fontWeight: 'bold', color: '#1976d2' }}>
+                            {(currentEmotion.faceDetectionScore * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* All Emotions with Levels */}
+                    <div style={{ marginBottom: '15px' }}>
+                      <h5 style={{ margin: '10px 0', color: '#1976d2', textAlign: 'center' }}>
+                        📊 All Detected Emotions & Confidence Levels:
+                      </h5>
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', 
+                        gap: '10px',
+                        marginTop: '10px'
+                      }}>
+                        {Object.entries(currentEmotion.allExpressions)
+                          .sort(([,a], [,b]) => b - a) // Sort by confidence
+                          .map(([emotion, confidence]) => (
+                          <div key={emotion} style={{
+                            padding: '10px 8px',
+                            backgroundColor: emotion === currentEmotion.emotion ? '#e3f2fd' : '#f5f5f5',
+                            border: emotion === currentEmotion.emotion ? '2px solid #2196f3' : '1px solid #ddd',
+                            borderRadius: '8px',
+                            textAlign: 'center',
+                            fontSize: '12px'
+                          }}>
+                            <div style={{ fontSize: '20px', marginBottom: '5px' }}>
+                              {getEmotionEmoji ? getEmotionEmoji(emotion) : '😐'}
+                            </div>
+                            <div style={{ 
+                              fontWeight: emotion === currentEmotion.emotion ? 'bold' : 'normal',
+                              color: emotion === currentEmotion.emotion ? '#1976d2' : '#333',
+                              marginBottom: '3px'
+                            }}>
+                              {emotion.charAt(0).toUpperCase() + emotion.slice(1)}
+                            </div>
+                            <div style={{ 
+                              fontWeight: 'bold',
+                              color: confidence > 0.5 ? '#4caf50' : confidence > 0.3 ? '#ff9800' : '#f44336'
+                            }}>
+                              {(confidence * 100).toFixed(1)}%
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Analysis Summary */}
+                    <div style={{
+                      padding: '10px',
+                      backgroundColor: '#e8f5e8',
+                      borderRadius: '6px',
+                      border: '1px solid #c8e6c9',
+                      textAlign: 'center',
+                      fontSize: '14px'
+                    }}>
+                      <strong style={{ color: '#2e7d32' }}>Analysis Complete!</strong>
+                      <br />
+                      You can now click "Analyze with AI" to get detailed therapy recommendations
+                      {currentEmotion.confidence < 0.5 && (
+                        <div style={{ marginTop: '5px', color: '#f57c00', fontSize: '12px' }}>
+                          💡 Note: Low confidence detected. Consider taking another photo with better lighting.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

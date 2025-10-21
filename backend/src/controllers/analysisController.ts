@@ -27,12 +27,13 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
   try {
     const childData: ChildData = req.body;
     const emotionAnalysis = req.body.emotionAnalysis;
-    const capturedImage = req.body.capturedImage; // Add image handling
+    const capturedImage = req.body.capturedImage;
+    const photoOnlyAnalysis = req.body.photoOnlyAnalysis; // New flag for photo-only analysis
 
     console.log('📨 Received request body keys:', Object.keys(req.body));
     console.log('📏 Request body size:', JSON.stringify(req.body).length, 'bytes');
 
-    // Validation - make fields optional for emotion-only analysis
+    // Validation - make fields optional for photo-only analysis
     if (!childData.childName) {
       res.status(400).json({
         success: false,
@@ -41,8 +42,17 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Allow partial submissions for emotion detection only
-    if (!emotionAnalysis && (!childData.age || !childData.eyeContact || !childData.speechLevel || 
+    // For photo-only analysis, we only need emotion data
+    if (photoOnlyAnalysis && !emotionAnalysis) {
+      res.status(400).json({
+        success: false,
+        error: 'Emotion analysis data is required for photo-only analysis'
+      });
+      return;
+    }
+
+    // For full analysis, we need all form fields (unless it's photo-only)
+    if (!photoOnlyAnalysis && !emotionAnalysis && (!childData.age || !childData.eyeContact || !childData.speechLevel || 
         !childData.socialResponse || !childData.sensoryReactions)) {
       res.status(400).json({
         success: false,
@@ -58,13 +68,61 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
     if (capturedImage) {
       console.log(`📷 Image data received: ${capturedImage.substring(0, 50)}...`);
     }
+    if (photoOnlyAnalysis) {
+      console.log('📸 Photo-only analysis requested');
+    }
 
-    // Only run Gemini analysis if we have complete form data
     let recommendations = null;
-    if (childData.age && childData.eyeContact && childData.speechLevel && 
+
+    // Handle photo-only analysis
+    if (photoOnlyAnalysis && emotionAnalysis) {
+      // Create a modified prompt for photo-only analysis using Gemini
+      const photoOnlyChildData: ChildData = {
+        childName: childData.childName,
+        age: childData.age || 5, // Default age if not provided
+        eyeContact: 0, // 0 indicates unknown/not assessed
+        speechLevel: 0, // 0 indicates unknown/not assessed
+        socialResponse: 0, // 0 indicates unknown/not assessed
+        sensoryReactions: 0 // 0 indicates unknown/not assessed
+      };
+
+      try {
+        recommendations = await geminiService.analyzeChildFromPhoto(photoOnlyChildData, emotionAnalysis);
+      } catch (geminiError) {
+        // Fallback for photo-only analysis
+        recommendations = {
+          assessment: `Based on facial expression analysis, ${childData.childName} shows primary emotion: ${emotionAnalysis.emotion} with ${(emotionAnalysis.confidence * 100).toFixed(1)}% confidence. A complete behavioral assessment is recommended for comprehensive evaluation.`,
+          riskLevel: emotionAnalysis.confidence > 0.7 ? 'Low' : emotionAnalysis.confidence > 0.4 ? 'Moderate' : 'High',
+          focusAreas: [
+            'Facial Expression Patterns',
+            'Emotional Regulation Assessment', 
+            'Complete Behavioral Evaluation'
+          ],
+          therapyGoals: [
+            'Complete comprehensive behavioral assessment',
+            'Monitor emotional expression patterns',
+            'Evaluate social communication skills'
+          ],
+          activities: [
+            'Schedule full autism screening assessment',
+            'Observe child in multiple social settings',
+            'Consider professional evaluation by developmental pediatrician'
+          ],
+          suggestions: [
+            'This photo-only analysis provides limited insights',
+            'Complete the full assessment form for accurate recommendations',
+            'Consult with healthcare professionals for proper evaluation'
+          ]
+        };
+      }
+    }
+    // Handle full analysis with all form data
+    else if (childData.age && childData.eyeContact && childData.speechLevel && 
         childData.socialResponse && childData.sensoryReactions) {
       recommendations = await geminiService.analyzeChild(childData);
-    } else {
+    }
+    // Handle incomplete form data (fallback)
+    else {
       recommendations = {
         assessment: 'Emotion detection completed. Please fill out the complete assessment form for detailed analysis.',
         riskLevel: 'Pending',
@@ -130,6 +188,7 @@ export const analyzeChild = async (req: Request, res: Response): Promise<void> =
       age: childData.age,
       data: recommendations,
       emotionAnalysis: emotionAnalysis || null,
+      photoOnlyAnalysis: photoOnlyAnalysis || false,
       source: 'gemini-ai'
     });
     

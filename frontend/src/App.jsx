@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import jsPDF from 'jspdf';
 import EmotionDetection from './components/EmotionDetection';
+import config from './config';
 import './App.css';
 
 function App() {
@@ -20,18 +21,38 @@ function App() {
   const [emotionData, setEmotionData] = useState([]);
   const [showEmotionDetection, setShowEmotionDetection] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [hasCurrentSessionData, setHasCurrentSessionData] = useState(false);
 
-  // Load saved data from localStorage on mount
+  // Clear old localStorage data on page load and initialize session
   React.useEffect(() => {
-    const saved = localStorage.getItem('autism_screenings');
-    if (saved) {
-      try {
-        setSavedData(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error loading saved data:', e);
-      }
-    }
+    // Clear previous session data
+    localStorage.removeItem('autism_screenings');
+    setSavedData([]);
+    setHasCurrentSessionData(false);
   }, []);
+
+  // Utility function for fetch with timeout
+  const fetchWithTimeout = async (url, options = {}, timeout = 60000) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw error;
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -41,12 +62,16 @@ function App() {
   const handleEmotionDetected = async (emotion) => {
     setEmotionData(prev => [...prev, emotion]);
     
-    // If this emotion detection includes a captured image, store it and process immediately
+    // If this emotion detection includes a captured image, store it
     if (emotion.capturedImage) {
       setCapturedImage(emotion.capturedImage);
-      setShowEmotionDetection(false);
       
-      // If we have minimal form data (at least child name), send for analysis
+      // For uploaded images, don't hide the emotion detection automatically
+      if (!emotion.isUploadedImage) {
+        setShowEmotionDetection(false);
+      }
+      
+      // Auto-analyze if we have form data, otherwise just store the emotion data
       if (formData.childName.trim()) {
         try {
           setLoading(true);
@@ -70,11 +95,11 @@ function App() {
             confidence: emotion.confidence
           });
 
-          const response = await fetch('http://localhost:5001/api/analyze', {
+          const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestData)
-          });
+          }, 60000);
 
           const data = await response.json();
 
@@ -89,6 +114,7 @@ function App() {
             const updated = [newEntry, ...savedData].slice(0, 10);
             setSavedData(updated);
             localStorage.setItem('autism_screenings', JSON.stringify(updated));
+            setHasCurrentSessionData(true); // Mark that we have current session data
           } else {
             setError(data.error || 'Analysis failed');
           }
@@ -167,6 +193,67 @@ function App() {
     return null;
   };
 
+  const handlePhotoOnlyAnalysis = async () => {
+    if (emotionData.length === 0) {
+      setError('No photo analysis data available. Please upload or capture a photo first.');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+    setResult(null);
+
+    try {
+      // Get the latest emotion data (most recent photo)
+      const latestEmotion = emotionData[emotionData.length - 1];
+      
+      const requestData = {
+        childName: 'Anonymous Child', // Default name for photo-only analysis
+        age: 5, // Default age - could be made configurable
+        emotionAnalysis: latestEmotion,
+        capturedImage: latestEmotion.capturedImage,
+        photoOnlyAnalysis: true // Flag to indicate this is photo-only
+      };
+
+      console.log('Sending photo-only analysis to backend:', {
+        hasImage: !!requestData.capturedImage,
+        emotion: latestEmotion.emotion,
+        confidence: latestEmotion.confidence,
+        photoOnly: true
+      });
+
+      const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      }, 60000);
+
+      const data = await response.json();
+
+      if (data.success) {
+        setResult(data);
+        
+        // Save to localStorage with photo-only flag
+        const newEntry = {
+          ...data,
+          timestamp: new Date().toISOString(),
+          photoOnlyAnalysis: true
+        };
+        const updated = [newEntry, ...savedData].slice(0, 10);
+        setSavedData(updated);
+        localStorage.setItem('autism_screenings', JSON.stringify(updated));
+        setHasCurrentSessionData(true); // Mark that we have current session data
+      } else {
+        setError(data.error || 'Photo analysis failed');
+      }
+    } catch (err) {
+      console.error('Error in photo-only analysis:', err);
+      setError('Failed to analyze photo. Please check your internet connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -193,11 +280,11 @@ function App() {
         ...(emotionSummary && { emotionAnalysis: emotionSummary })
       };
 
-      const response = await fetch('http://localhost:5001/api/analyze', {
+      const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
-      });
+      }, 60000);
 
       const data = await response.json();
 
@@ -212,12 +299,13 @@ function App() {
         const updated = [newEntry, ...savedData].slice(0, 10); // Keep last 10
         setSavedData(updated);
         localStorage.setItem('autism_screenings', JSON.stringify(updated));
+        setHasCurrentSessionData(true); // Mark that we have current session data
       } else {
         setError(data.error || 'Analysis failed');
       }
     } catch (err) {
       console.error('Error:', err);
-      setError('Failed to connect to server. Make sure backend is running on port 5002.');
+      setError('Failed to connect to server. Please check your internet connection.');
     } finally {
       setLoading(false);
     }
@@ -345,6 +433,28 @@ function App() {
     setEmotionData([]);
     setShowEmotionDetection(false);
     setCapturedImage(null);
+    setSelectedHistoryItem(null);
+    setShowHistory(false);
+  };
+
+  const viewHistoryItem = (item) => {
+    setSelectedHistoryItem(item);
+    setResult(item.result);
+    setShowHistory(false);
+    // Scroll to results
+    setTimeout(() => {
+      const resultsElement = document.querySelector('.results');
+      if (resultsElement) {
+        resultsElement.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+  };
+
+  const toggleHistory = () => {
+    setShowHistory(!showHistory);
+    if (showHistory) {
+      setSelectedHistoryItem(null);
+    }
   };
 
   return (
@@ -501,18 +611,70 @@ function App() {
                     {getEmotionSummary() && (
                       <p>Dominant emotion: <strong>{getEmotionSummary().dominantEmotion}</strong></p>
                     )}
+                    
+                    {/* Photo-only analysis info */}
+                    {!formData.childName.trim() && (
+                      <div style={{
+                        marginTop: '15px',
+                        padding: '12px',
+                        backgroundColor: '#fff3cd',
+                        border: '1px solid #ffeaa7',
+                        borderRadius: '8px',
+                        fontSize: '14px'
+                      }}>
+                        <strong>💡 Quick Analysis:</strong> You can get instant AI recommendations based on just this photo analysis by clicking "Analyze Photo Only" below - no form required!
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {error && <div className="error">{error}</div>}
+          {error && (
+            <div className="error" style={{
+              background: 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
+              color: '#c62828',
+              padding: '15px 20px',
+              borderRadius: '10px',
+              border: '2px solid #e57373',
+              marginTop: '15px',
+              fontSize: '16px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              ❌ {error}
+            </div>
+          )}
 
           <div className="button-group">
             <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? '🔄 Analyzing with AI...' : '🤖 Analyze with AI'}
+              {loading ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ animation: 'spin 1s linear infinite' }}>🔄</span>
+                  Analyzing with AI...
+                </span>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  🤖 Analyze with AI
+                </span>
+              )}
             </button>
+            
+            {/* Photo-only analysis button */}
+            {emotionData.length > 0 && !formData.childName.trim() && (
+              <button 
+                type="button" 
+                className="btn-photo-analysis" 
+                onClick={handlePhotoOnlyAnalysis}
+                disabled={loading}
+              >
+                {loading ? '🔄 Analyzing Photo...' : '📸 Analyze Photo Only'}
+              </button>
+            )}
+            
             <button type="button" className="btn-secondary" onClick={resetForm}>
               🔄 Reset Form
             </button>
@@ -532,12 +694,38 @@ function App() {
             <div className="child-info">
               <strong>Child:</strong> {result.childName} | <strong>Age:</strong> {result.age} years
               <span className="ai-badge">Powered by Gemini AI</span>
+              {result.photoOnlyAnalysis && (
+                <span className="photo-only-badge" style={{
+                  marginLeft: '10px',
+                  padding: '4px 8px',
+                  backgroundColor: '#FF6B35',
+                  color: 'white',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}>
+                  📸 Photo-Only Analysis
+                </span>
+              )}
             </div>
 
             {/* Emotion Analysis Results */}
             {result.emotionAnalysis && (
               <div className="result-section emotion-results">
                 <h3>🎭 {result.childName}'s Facial Expression Analysis</h3>
+                {result.photoOnlyAnalysis && (
+                  <div style={{
+                    padding: '10px',
+                    backgroundColor: '#fff3cd',
+                    border: '1px solid #ffeaa7',
+                    borderRadius: '6px',
+                    marginBottom: '15px',
+                    fontSize: '14px'
+                  }}>
+                    <strong>📸 Photo-Only Analysis:</strong> This analysis is based solely on facial expression data. 
+                    For more comprehensive recommendations, please fill out the complete assessment form.
+                  </div>
+                )}
                 <div className="emotion-analysis-grid">
                   {capturedImage && (
                     <div className="captured-image">
@@ -651,37 +839,124 @@ function App() {
 
             <div className="result-section">
               <h3>🎯 Focus Areas</h3>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ 
+                  color: '#666', 
+                  fontStyle: 'italic', 
+                  marginBottom: '20px',
+                  background: '#f8f9fa',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #2196f3'
+                }}>
+                  These are the key developmental areas that need attention based on {result.childName}'s assessment:
+                </p>
+              </div>
               <ul>
                 {result.data.focusAreas.map((area, i) => (
-                  <li key={i}>{area}</li>
+                  <li key={i} style={{ marginBottom: '12px' }}>
+                    <strong style={{ color: '#1976d2' }}>Area {i + 1}:</strong> {area}
+                  </li>
                 ))}
               </ul>
             </div>
 
             <div className="result-section">
               <h3>🎯 Therapy Goals</h3>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ 
+                  color: '#666', 
+                  fontStyle: 'italic', 
+                  marginBottom: '20px',
+                  background: '#f8f9fa',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #2196f3'
+                }}>
+                  Specific, measurable goals designed for {result.childName}'s development:
+                </p>
+              </div>
               <ol>
                 {result.data.therapyGoals.map((goal, i) => (
-                  <li key={i}>{goal}</li>
+                  <li key={i} style={{ marginBottom: '15px' }}>
+                    <div style={{ lineHeight: '1.6' }}>
+                      <strong style={{ color: '#1976d2' }}>Goal {i + 1}:</strong> {goal}
+                    </div>
+                  </li>
                 ))}
               </ol>
             </div>
 
             <div className="result-section">
               <h3>✨ Recommended Activities</h3>
+              <div style={{ marginBottom: '15px' }}>
+                <p style={{ 
+                  color: '#666', 
+                  fontStyle: 'italic', 
+                  marginBottom: '20px',
+                  background: '#f8f9fa',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #2196f3'
+                }}>
+                  Fun and engaging activities to support {result.childName}'s development at home:
+                </p>
+              </div>
               <ul>
                 {result.data.activities.map((activity, i) => {
                   // Handle both string and object formats from Gemini
                   if (typeof activity === 'string') {
-                    return <li key={i}>{activity}</li>;
+                    return (
+                      <li key={i} style={{ marginBottom: '20px' }}>
+                        <div style={{ 
+                          background: '#f8f9fa', 
+                          padding: '15px', 
+                          borderRadius: '8px',
+                          borderLeft: '4px solid #4caf50'
+                        }}>
+                          <strong style={{ color: '#1976d2' }}>Activity {i + 1}:</strong>
+                          <div style={{ marginTop: '8px', lineHeight: '1.6' }}>{activity}</div>
+                        </div>
+                      </li>
+                    );
                   } else if (typeof activity === 'object' && activity !== null) {
                     return (
-                      <li key={i}>
-                        <strong>{activity.name || `Activity ${i + 1}`}</strong>
-                        {activity.instructions && <div className="activity-detail"><em>Instructions:</em> {activity.instructions}</div>}
-                        {activity.materials && <div className="activity-detail"><em>Materials:</em> {activity.materials}</div>}
-                        {activity.durationFrequency && <div className="activity-detail"><em>Duration:</em> {activity.durationFrequency}</div>}
-                        {activity.successLooksLike && <div className="activity-detail"><em>Success:</em> {activity.successLooksLike}</div>}
+                      <li key={i} style={{ marginBottom: '25px' }}>
+                        <div style={{ 
+                          background: '#f8f9fa', 
+                          padding: '20px', 
+                          borderRadius: '12px',
+                          borderLeft: '4px solid #4caf50',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                        }}>
+                          <strong style={{ color: '#1976d2', fontSize: '1.1rem' }}>
+                            {activity.name || `Activity ${i + 1}`}
+                          </strong>
+                          {activity.instructions && (
+                            <div className="activity-detail" style={{ marginTop: '10px' }}>
+                              <em style={{ color: '#2e7d32' }}>📝 Instructions:</em> 
+                              <div style={{ marginTop: '5px' }}>{activity.instructions}</div>
+                            </div>
+                          )}
+                          {activity.materials && (
+                            <div className="activity-detail" style={{ marginTop: '8px' }}>
+                              <em style={{ color: '#1976d2' }}>🧰 Materials:</em> 
+                              <div style={{ marginTop: '5px' }}>{activity.materials}</div>
+                            </div>
+                          )}
+                          {activity.durationFrequency && (
+                            <div className="activity-detail" style={{ marginTop: '8px' }}>
+                              <em style={{ color: '#7b1fa2' }}>⏰ Duration:</em> 
+                              <div style={{ marginTop: '5px' }}>{activity.durationFrequency}</div>
+                            </div>
+                          )}
+                          {activity.successLooksLike && (
+                            <div className="activity-detail" style={{ marginTop: '8px' }}>
+                              <em style={{ color: '#d32f2f' }}>🎯 Success:</em> 
+                              <div style={{ marginTop: '5px' }}>{activity.successLooksLike}</div>
+                            </div>
+                          )}
+                        </div>
                       </li>
                     );
                   }
@@ -693,9 +968,32 @@ function App() {
             {result.data.suggestions && result.data.suggestions.length > 0 && (
               <div className="result-section suggestions">
                 <h3>💡 Additional Suggestions</h3>
+                <div style={{ marginBottom: '15px' }}>
+                  <p style={{ 
+                    color: '#666', 
+                    fontStyle: 'italic', 
+                    marginBottom: '20px',
+                    background: '#fff3e0',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    borderLeft: '4px solid #ff9800'
+                  }}>
+                    Professional recommendations for {result.childName}'s continued development:
+                  </p>
+                </div>
                 <ul>
                   {result.data.suggestions.map((suggestion, i) => (
-                    <li key={i}>{suggestion}</li>
+                    <li key={i} style={{ marginBottom: '15px' }}>
+                      <div style={{ 
+                        background: '#fff8e1', 
+                        padding: '15px', 
+                        borderRadius: '8px',
+                        borderLeft: '4px solid #ffa726'
+                      }}>
+                        <strong style={{ color: '#e65100' }}>Suggestion {i + 1}:</strong>
+                        <div style={{ marginTop: '8px', lineHeight: '1.6' }}>{suggestion}</div>
+                      </div>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -720,12 +1018,35 @@ function App() {
           </div>
         )}
 
+        {/* Simple History - Only show when results are displayed AND we have current session data */}
+        {result && savedData.length > 0 && hasCurrentSessionData && (
+          <div className="simple-history">
+            <h3>📋 Recent Screenings (Stored Locally)</h3>
+            <div className="simple-history-list">
+              {savedData.slice(0, 5).map((item, index) => (
+                <div 
+                  key={index} 
+                  className="simple-history-item"
+                  onClick={() => viewHistoryItem(item)}
+                >
+                  <span className="history-name">
+                    👶 {item.childName || 'Photo Analysis'} - Age {item.age || 'Unknown'}
+                  </span>
+                  <span className="history-date">
+                    {new Date(item.timestamp).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="footer">
           <p>
             <strong>Organization:</strong> Arvit HealthTech / Global Child Wellness Centre<br />
             <strong>Contact:</strong> info@globalchildwellness.com | www.globalchildwellness.com<br />
-            <strong>Project Duration:</strong> 7 Days | <strong>Technology:</strong> React + Gemini AI
+            <strong>Technology:</strong> React + Gemini AI
           </p>
         </div>
       </div>
