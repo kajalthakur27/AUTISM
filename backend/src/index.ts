@@ -9,6 +9,8 @@ dotenv.config();
 const app: Application = express();
 const PORT = process.env.PORT || 5000;
 
+// Updated CORS to support Vercel deployment - v2.0
+
 // Middleware
 // Robust CORS: allow specific origins from env and any localhost/127.0.0.1 in development
 const explicitOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173', 'http://localhost:5174'];
