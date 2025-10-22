@@ -1,13 +1,24 @@
-// API Configuration with Auto Environment Detection
+// API Configuration with Robust Environment Detection
+const isLocalDevelopment = () => {
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || 
+         hostname === '127.0.0.1' || 
+         hostname.includes('localhost') ||
+         window.location.port === '5173' ||
+         window.location.port === '3000';
+};
+
 const config = {
-  // Auto-detect environment and use appropriate URL
-  API_BASE_URL: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  // Robust environment detection
+  API_BASE_URL: isLocalDevelopment()
     ? 'http://localhost:5001'  // Local development
     : 'https://autism-fzil.onrender.com', // Production deployed backend
   
-  // Fallback URLs for better reliability
-  FALLBACK_API_BASE_URL: 'https://autism-fzil.onrender.com',
-  LOCAL_API_BASE_URL: 'http://localhost:5001',
+  // Multiple fallback URLs for maximum reliability
+  FALLBACK_URLS: [
+    'https://autism-fzil.onrender.com',
+    'https://autism-fzil.onrender.com', // Try same URL twice (Render cold starts)
+  ],
   
   // API endpoints
   ENDPOINTS: {
@@ -17,10 +28,12 @@ const config = {
   }
 };
 
-// Debug logging for production troubleshooting
-console.log(`🔧 Environment Detection:
+// Enhanced debug logging
+console.log(`🔧 Environment Detection (Enhanced):
 📍 Current hostname: ${window.location.hostname}
+🔗 Full URL: ${window.location.href}
 🌐 API Base URL: ${config.API_BASE_URL}
-🔄 Fallback URL: ${config.FALLBACK_API_BASE_URL}`);
+🔄 Fallback URLs: ${config.FALLBACK_URLS.join(', ')}
+🏠 Is Local Dev: ${isLocalDevelopment()}`);
 
 export default config;

@@ -54,16 +54,20 @@ function App() {
     }
   };
 
-  // Smart API call with automatic fallback
+  // Smart API call with multiple fallback URLs
   const smartApiCall = async (endpoint, options = {}) => {
+    // Build all possible URLs to try
     const urls = [
       `${config.API_BASE_URL}${endpoint}`,
-      `${config.FALLBACK_API_BASE_URL}${endpoint}`
+      ...config.FALLBACK_URLS.map(url => `${url}${endpoint}`)
     ];
 
     let lastError = null;
+    console.log(`🚀 Starting API call to endpoint: ${endpoint}`);
+    console.log(`📋 Will try ${urls.length} URLs:`, urls);
 
-    for (const url of urls) {
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       try {
         console.log(`🔄 Trying API call to: ${url}`);
         const response = await fetchWithTimeout(url, options, 30000); // 30 second timeout

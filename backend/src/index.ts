@@ -27,6 +27,19 @@ const corsOptions: cors.CorsOptions = {
       return callback(null, true);
     }
 
+    // Allow any vercel.app subdomain for easier deployment
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+      console.log(`✅ Allowing Vercel domain: ${origin}`);
+      return callback(null, true);
+    }
+
+    // Allow any netlify.app subdomain 
+    if (/^https:\/\/.*\.netlify\.app$/.test(origin)) {
+      console.log(`✅ Allowing Netlify domain: ${origin}`);
+      return callback(null, true);
+    }
+
+    console.warn(`❌ CORS blocked origin: ${origin}`);
     return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
   credentials: true,
