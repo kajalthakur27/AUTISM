@@ -33,7 +33,7 @@ function App() {
     setHasCurrentSessionData(false);
   }, []);
 
-  // Utility function for fetch with timeout
+  // Utility function for fetch with timeout and fallback
   const fetchWithTimeout = async (url, options = {}, timeout = 60000) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -52,6 +52,42 @@ function App() {
       }
       throw error;
     }
+  };
+
+  // Smart API call with automatic fallback
+  const smartApiCall = async (endpoint, options = {}) => {
+    const urls = [
+      `${config.API_BASE_URL}${endpoint}`,
+      `${config.FALLBACK_API_BASE_URL}${endpoint}`
+    ];
+
+    let lastError = null;
+
+    for (const url of urls) {
+      try {
+        console.log(`🔄 Trying API call to: ${url}`);
+        const response = await fetchWithTimeout(url, options, 30000); // 30 second timeout
+        
+        if (response.ok) {
+          console.log(`✅ Successfully connected to: ${url}`);
+          return response;
+        } else {
+          console.warn(`⚠️ API responded with status ${response.status} from: ${url}`);
+          lastError = new Error(`Server responded with status ${response.status}`);
+        }
+      } catch (error) {
+        console.warn(`❌ Failed to connect to: ${url}`, error.message);
+        lastError = error;
+        
+        // If this is a network error, try the next URL
+        if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('CONNECTION_REFUSED')) {
+          continue;
+        }
+      }
+    }
+
+    // If all attempts failed, throw a user-friendly error
+    throw new Error('Unable to connect to the analysis service. Please check your internet connection and try again.');
   };
 
   const handleChange = (e) => {
@@ -95,11 +131,11 @@ function App() {
             confidence: emotion.confidence
           });
 
-          const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
+          const response = await smartApiCall(config.ENDPOINTS.ANALYZE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestData)
-          }, 60000);
+          });
 
           const data = await response.json();
 
@@ -120,7 +156,16 @@ function App() {
           }
         } catch (err) {
           console.error('Error analyzing emotion:', err);
-          setError('Failed to analyze emotion. Please try again.');
+          // Show user-friendly error message
+          if (err.message.includes('connect') || err.message.includes('network') || err.message.includes('fetch')) {
+            setError('❌ Connection failed. Please check your internet connection and try again.');
+          } else if (err.message.includes('timeout')) {
+            setError('⏱️ Request timed out. Please try again in a moment.');
+          } else if (err.message.includes('analysis service')) {
+            setError('🔧 Analysis service is temporarily unavailable. Please try again later.');
+          } else {
+            setError('⚠️ Something went wrong. Please try again.');
+          }
         } finally {
           setLoading(false);
         }
@@ -222,11 +267,11 @@ function App() {
         photoOnly: true
       });
 
-      const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
+      const response = await smartApiCall(config.ENDPOINTS.ANALYZE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
-      }, 60000);
+      });
 
       const data = await response.json();
 
@@ -248,7 +293,16 @@ function App() {
       }
     } catch (err) {
       console.error('Error in photo-only analysis:', err);
-      setError('Failed to analyze photo. Please check your internet connection and try again.');
+      // Show user-friendly error message
+      if (err.message.includes('connect') || err.message.includes('network') || err.message.includes('fetch')) {
+        setError('📸 Photo analysis failed. Please check your internet connection and try again.');
+      } else if (err.message.includes('timeout')) {
+        setError('⏱️ Photo analysis timed out. Please try again in a moment.');
+      } else if (err.message.includes('analysis service')) {
+        setError('🔧 Photo analysis service is temporarily unavailable. Please try again later.');
+      } else {
+        setError('⚠️ Photo analysis failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -280,11 +334,11 @@ function App() {
         ...(emotionSummary && { emotionAnalysis: emotionSummary })
       };
 
-      const response = await fetchWithTimeout(`${config.API_BASE_URL}${config.ENDPOINTS.ANALYZE}`, {
+      const response = await smartApiCall(config.ENDPOINTS.ANALYZE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
-      }, 60000);
+      });
 
       const data = await response.json();
 
@@ -305,7 +359,16 @@ function App() {
       }
     } catch (err) {
       console.error('Error:', err);
-      setError('Failed to connect to server. Please check your internet connection.');
+      // Show user-friendly error message
+      if (err.message.includes('connect') || err.message.includes('network') || err.message.includes('fetch')) {
+        setError('🌐 Connection failed. Please check your internet connection and try again.');
+      } else if (err.message.includes('timeout')) {
+        setError('⏱️ Analysis timed out. Please try again in a moment.');
+      } else if (err.message.includes('analysis service')) {
+        setError('🔧 Analysis service is temporarily unavailable. Please try again later.');
+      } else {
+        setError('⚠️ Analysis failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
